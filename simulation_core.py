@@ -3,7 +3,7 @@ import random
 import time
 from scipy.stats import gaussian_kde
 
-# Импорты из config.py (будут доступны после создания config.py) 
+# Импорты из config.py (будут доступны после создания config.py) слово
 from config import (
     N_SCENARIOS, N_MONTHS, HORIZONS,
     CUSHION_AMOUNT, SAVINGS_RETURN_RATE, IDEAL_RETURN_RATE, TAX_RATE,
