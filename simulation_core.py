@@ -17,6 +17,50 @@ from config import (
 )
 
 
+class RandomBatchManager:
+    """
+    Класс для эффективного управления батчами случайных чисел
+    Ускоряет симуляцию за счет предгенерации случайных чисел
+    """
+    def __init__(self, batch_size=1000):
+        self.batch_size = batch_size
+        self.batch_idx = 0
+        self.current_batch = None
+        # Индексы для разных типов событий
+        self.MINOR_EM_IDX = 0
+        self.MEDIUM_EM_IDX = 1  
+        self.MAJOR_EM_IDX = 2
+        self.CLUSTER_CONTINUE_IDX = 3
+        self.CLUSTER_TYPE_IDX = 4
+        self.PARTIAL_LOSS_IDX = 5
+        self.FULL_LOSS_IDX = 6
+        self._generate_new_batch()
+    
+    def _generate_new_batch(self):
+        """Генерирует новый батч случайных чисел"""
+        # 7 колонок для основных событий + дополнительные для нормальных/экспоненциальных распределений
+        self.current_batch = np.random.random((self.batch_size, 7))
+        # Предгенерируем также специальные распределения
+        self.poisson_batch = np.random.poisson(MAJOR_CLUSTER_LAMBDA, self.batch_size)
+        self.exponential_batch = np.random.exponential(PARTIAL_LOSS_DURATION, self.batch_size)
+        self.normal_batch = np.random.normal(FULL_LOSS_DURATION_MEAN, FULL_LOSS_DURATION_SD, self.batch_size)
+        self.batch_idx = 0
+    
+    def get_randoms(self):
+        """Возвращает следующий набор случайных чисел"""
+        if self.batch_idx >= self.batch_size:
+            self._generate_new_batch()
+        
+        result = {
+            'uniform': self.current_batch[self.batch_idx],
+            'poisson': self.poisson_batch[self.batch_idx],
+            'exponential': self.exponential_batch[self.batch_idx],
+            'normal': self.normal_batch[self.batch_idx]
+        }
+        self.batch_idx += 1
+        return result
+
+
 def check_plan_changes(month, plan_data):
     """
     НОВАЯ ФУНКЦИЯ: Проверяет и применяет изменения дохода/расходов согласно плану 
@@ -519,10 +563,13 @@ def calculate_linear_scenario(plan_data, months, planned_expenses_enabled=True):
 
 def run_simulation(plan_id, plan_data):
     """
-    ОБНОВЛЕНО: добавлен виртуальный сценарий для правильного расчета потерь компаундинга
+    ВЕКТОРИЗОВАНО: добавлен батчевый менеджер случайных чисел для ускорения
     """
     print(f"\nЗапуск модели для Плана {plan_id} (начальный доход {plan_data['initial_income']}₽/мес, стартовый капитал {plan_data.get('initial_capital', 0):,}₽)...")
     start_time = time.time()
+    
+    # НОВОЕ: Инициализация батчевого менеджера случайных чисел
+    batch_manager = RandomBatchManager(batch_size=500)  # Размер батча оптимизирован для веб-версии
     
     # НОВОЕ: Получаем запланированные расходы из плана
     plan_expenses = plan_data.get('planned_expenses', [])
@@ -682,6 +729,10 @@ def run_simulation(plan_id, plan_data):
             medium_em_occurred = False
             major_em_occurred = False
             
+            # ВЕКТОРИЗОВАННАЯ ГЕНЕРАЦИЯ ЧП: Получаем батч случайных чисел
+            randoms = batch_manager.get_randoms()
+            r_uniform = randoms['uniform']
+            
             # Обработка крупных ЧП с кластеризацией Пуассона
             if major_cluster_remaining > 0:
                 emergency_cost += MAJOR_EMERGENCY_COST
@@ -690,9 +741,9 @@ def run_simulation(plan_id, plan_data):
                 major_em_occurred = True
                 major_cluster_remaining -= 1
             
-            # Генерация новых ЧП (возможны несколько в одном месяце)
+            # ВЕКТОРИЗОВАННАЯ ГЕНЕРАЦИЯ: Генерация новых ЧП (используем предгенерированные числа)
             # Мелкие ЧП
-            if not minor_cluster_active and random.random() < MINOR_EMERGENCY_PROB:
+            if not minor_cluster_active and r_uniform[batch_manager.MINOR_EM_IDX] < MINOR_EMERGENCY_PROB:
                 emergency_cost += MINOR_EMERGENCY_COST
                 shock_history.append((month, MINOR_EMERGENCY_COST, 'minor_emergency'))
                 minor_em_count += 1
@@ -700,7 +751,7 @@ def run_simulation(plan_id, plan_data):
                 minor_cluster_active = True
             
             # Средние ЧП
-            if not minor_cluster_active and random.random() < MEDIUM_EMERGENCY_PROB:
+            if not minor_cluster_active and r_uniform[batch_manager.MEDIUM_EM_IDX] < MEDIUM_EMERGENCY_PROB:
                 emergency_cost += MEDIUM_EMERGENCY_COST
                 shock_history.append((month, MEDIUM_EMERGENCY_COST, 'medium_emergency'))
                 medium_em_count += 1
@@ -708,20 +759,20 @@ def run_simulation(plan_id, plan_data):
                 minor_cluster_active = True
             
             # Крупные ЧП (только если нет активного кластера)
-            if major_cluster_remaining == 0 and random.random() < MAJOR_EMERGENCY_PROB:
+            if major_cluster_remaining == 0 and r_uniform[batch_manager.MAJOR_EM_IDX] < MAJOR_EMERGENCY_PROB:
                 emergency_cost += MAJOR_EMERGENCY_COST
                 shock_history.append((month, MAJOR_EMERGENCY_COST, 'major_emergency'))
                 major_em_count += 1
                 major_em_occurred = True
-                # Запуск кластера Пуассона для крупных ЧП
-                major_cluster_remaining = np.random.poisson(lam=MAJOR_CLUSTER_LAMBDA)
+                # ВЕКТОРИЗОВАННАЯ ГЕНЕРАЦИЯ: Запуск кластера Пуассона для крупных ЧП
+                major_cluster_remaining = randoms['poisson']
             
             # Обработка кластера для мелких/средних ЧП
             if minor_cluster_active:
-                # С вероятностью 38% генерируем дополнительное ЧП в кластере
-                if random.random() < MINOR_CLUSTER_PROB:
-                    r = random.random()
-                    if r < 0.651:  # Мелкие (65.1%)
+                # ВЕКТОРИЗОВАННАЯ ГЕНЕРАЦИЯ: С вероятностью 38% генерируем дополнительное ЧП в кластере
+                if r_uniform[batch_manager.CLUSTER_CONTINUE_IDX] < MINOR_CLUSTER_PROB:
+                    cluster_type = r_uniform[batch_manager.CLUSTER_TYPE_IDX]
+                    if cluster_type < 0.651:  # Мелкие (65.1%)
                         emergency_cost += MINOR_EMERGENCY_COST
                         shock_history.append((month, MINOR_EMERGENCY_COST, 'minor_cluster'))
                         minor_em_count += 1
@@ -736,13 +787,13 @@ def run_simulation(plan_id, plan_data):
             
             available -= emergency_cost
             
-            # Генерация потерь дохода
+            # ВЕКТОРИЗОВАННАЯ ГЕНЕРАЦИЯ: Генерация потерь дохода
             loss = 0
-            if active_partial_loss == 0 and random.random() < PARTIAL_LOSS_PROB:
-                active_partial_loss = max(1, int(np.random.exponential(PARTIAL_LOSS_DURATION)))
+            if active_partial_loss == 0 and r_uniform[batch_manager.PARTIAL_LOSS_IDX] < PARTIAL_LOSS_PROB:
+                active_partial_loss = max(1, int(randoms['exponential']))
             
-            if active_full_loss == 0 and random.random() < FULL_LOSS_PROB:
-                duration = np.random.normal(FULL_LOSS_DURATION_MEAN, FULL_LOSS_DURATION_SD)
+            if active_full_loss == 0 and r_uniform[batch_manager.FULL_LOSS_IDX] < FULL_LOSS_PROB:
+                duration = randoms['normal']
                 active_full_loss = max(1, int(np.round(duration)))
             
             if active_partial_loss > 0:
@@ -1107,7 +1158,7 @@ def run_simulation(plan_id, plan_data):
                         horizon_months_restructuring = 0
                     horizon_data['months_in_restructuring'][scenario] = horizon_months_restructuring
         
-        if (scenario + 1) % 1000 == 0:
+        if (scenario + 1) % 200 == 0:  # Прогресс каждые 200 сценариев для 1000 всего
             elapsed = time.time() - start_time
             progress = (scenario + 1) / N_SCENARIOS * 100
             print(f"  {scenario+1}/{N_SCENARIOS} ({progress:.0f}%) - {elapsed:.1f} сек")
