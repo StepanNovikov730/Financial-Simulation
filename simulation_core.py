@@ -61,9 +61,20 @@ class RandomBatchManager:
         return result
 
 
+def validate_financial_state(savings, annual_growth, context=""):
+    """
+    Проверяет логическую консистентность финансового состояния
+    """
+    if savings <= 0 and annual_growth > 0:
+        print(f"WARNING: Аномалия в {context}: savings={savings:.2f}, annual_growth={annual_growth:.2f}")
+        return False
+    return True
+
+
 def handle_savings_withdrawal(savings, annual_growth, withdrawal_amount):
     """
-    ИСПРАВЛЕНИЕ: Корректная обработка изъятия из savings с учетом налогов
+    ИСПРАВЛЕНО: Корректная обработка изъятия из savings с учетом налогов
+    Устранена аномалия с annual_growth > 0 при savings = 0
     
     Args:
         savings: текущая сумма сбережений
@@ -76,16 +87,23 @@ def handle_savings_withdrawal(savings, annual_growth, withdrawal_amount):
     if withdrawal_amount <= 0:
         return savings, annual_growth, 0
     
+    # ИСПРАВЛЕНИЕ: Если нет сбережений, то не должно быть и накопленного роста
+    if savings <= 0:
+        # Любое изъятие из пустых сбережений полностью идет в долг
+        return 0, 0, withdrawal_amount
+    
     if savings >= withdrawal_amount:
         # Частичное изъятие - пропорционально уменьшаем annual_growth
-        if savings > 0:
-            withdrawal_ratio = withdrawal_amount / savings
-            new_annual_growth = annual_growth * (1 - withdrawal_ratio)
-        else:
-            new_annual_growth = annual_growth
-        
+        withdrawal_ratio = withdrawal_amount / savings
+        new_annual_growth = annual_growth * (1 - withdrawal_ratio)
         new_savings = savings - withdrawal_amount
         debt_increase = 0
+        
+        # Дополнительная проверка консистентности
+        if new_savings <= 0:
+            new_savings = 0
+            new_annual_growth = 0
+            
     else:
         # Полное изъятие - обнуляем annual_growth, остаток в долг
         debt_increase = withdrawal_amount - savings
