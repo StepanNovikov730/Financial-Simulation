@@ -61,6 +61,40 @@ class RandomBatchManager:
         return result
 
 
+def handle_savings_withdrawal(savings, annual_growth, withdrawal_amount):
+    """
+    ИСПРАВЛЕНИЕ: Корректная обработка изъятия из savings с учетом налогов
+    
+    Args:
+        savings: текущая сумма сбережений
+        annual_growth: накопленный за год рост (для налогов)
+        withdrawal_amount: сумма изъятия
+    
+    Returns:
+        tuple: (new_savings, new_annual_growth, debt_increase)
+    """
+    if withdrawal_amount <= 0:
+        return savings, annual_growth, 0
+    
+    if savings >= withdrawal_amount:
+        # Частичное изъятие - пропорционально уменьшаем annual_growth
+        if savings > 0:
+            withdrawal_ratio = withdrawal_amount / savings
+            new_annual_growth = annual_growth * (1 - withdrawal_ratio)
+        else:
+            new_annual_growth = annual_growth
+        
+        new_savings = savings - withdrawal_amount
+        debt_increase = 0
+    else:
+        # Полное изъятие - обнуляем annual_growth, остаток в долг
+        debt_increase = withdrawal_amount - savings
+        new_savings = 0
+        new_annual_growth = 0  # Весь накопленный рост "съеден"
+    
+    return new_savings, new_annual_growth, debt_increase
+
+
 def check_plan_changes(month, plan_data):
     """
     НОВАЯ ФУНКЦИЯ: Проверяет и применяет изменения дохода/расходов согласно плану 
@@ -264,7 +298,8 @@ def calculate_ideal_scenario(plan_data, months, planned_expenses_enabled=True):
                 debt -= repayment
             elif savings > 0:
                 repayment = min(savings, debt)
-                savings -= repayment
+                # ИСПРАВЛЕНИЕ: Корректируем annual_growth при погашении долга из savings
+                savings, annual_growth, _ = handle_savings_withdrawal(savings, annual_growth, repayment)
                 debt -= repayment
         
         # Полная система управления долгом и начисление процентов
@@ -278,6 +313,7 @@ def calculate_ideal_scenario(plan_data, months, planned_expenses_enabled=True):
                 debt = 0
                 cushion = 0
                 savings = 0
+                annual_growth = 0  # ИСПРАВЛЕНИЕ: Обнуляем при банкротстве
                 is_restructured = False
                 
             # Этап 2: Реструктуризация (1-3 годовых дохода)
@@ -320,24 +356,20 @@ def calculate_ideal_scenario(plan_data, months, planned_expenses_enabled=True):
             if available > 0:
                 savings += available
         elif available < 0:
-            # Покрытие дефицита из активов - сначала cushion, потом savings
+            # ИСПРАВЛЕНИЕ: Покрытие дефицита с корректировкой annual_growth
             deficit = -available
             if cushion >= deficit:
                 cushion -= deficit
             elif cushion > 0:
                 deficit -= cushion
                 cushion = 0
-                if savings >= deficit:
-                    savings -= deficit
-                else:
-                    debt += deficit - savings
-                    savings = 0
+                # Изъятие из savings с корректировкой annual_growth
+                savings, annual_growth, debt_increase = handle_savings_withdrawal(savings, annual_growth, deficit)
+                debt += debt_increase
             else:
-                if savings >= deficit:
-                    savings -= deficit
-                else:
-                    debt += deficit - savings
-                    savings = 0
+                # Изъятие только из savings
+                savings, annual_growth, debt_increase = handle_savings_withdrawal(savings, annual_growth, deficit)
+                debt += debt_increase
         
         # Обработка запланированных расходов из плана (только из savings)
         if planned_expenses_enabled and plan_expenses:
@@ -355,14 +387,10 @@ def calculate_ideal_scenario(plan_data, months, planned_expenses_enabled=True):
                     should_spend = True
                 
                 if should_spend:
-                    if savings >= expense['amount']:
-                        savings -= expense['amount']
-                        planned_completed[i] = True
-                    else:
-                        # Если не хватает сбережений, добавляем в долг
-                        debt += expense['amount'] - savings
-                        savings = 0
-                        planned_completed[i] = True
+                    # ИСПРАВЛЕНИЕ: Запланированные расходы тоже корректируют annual_growth
+                    savings, annual_growth, debt_increase = handle_savings_withdrawal(savings, annual_growth, expense['amount'])
+                    debt += debt_increase
+                    planned_completed[i] = True
         
         # Погашение долга из активов в конце месяца
         if debt > 0:
@@ -372,17 +400,19 @@ def calculate_ideal_scenario(plan_data, months, planned_expenses_enabled=True):
                 debt -= repayment
             elif savings > 0:
                 repayment = min(savings, debt)
-                savings -= repayment
+                # ИСПРАВЛЕНИЕ: Корректируем annual_growth при погашении долга
+                savings, annual_growth, _ = handle_savings_withdrawal(savings, annual_growth, repayment)
                 debt -= repayment
         
         # Уплата налога (в конце года)
         if month % 12 == 0 and annual_growth > 0:
             tax_payment = annual_growth * TAX_RATE
+            # ИСПРАВЛЕНИЕ: Выплата налога тоже корректирует annual_growth
             if savings >= tax_payment:
-                savings -= tax_payment
+                savings, annual_growth, _ = handle_savings_withdrawal(savings, annual_growth, tax_payment)
             else:
-                debt += tax_payment - savings
-                savings = 0
+                savings, annual_growth, debt_increase = handle_savings_withdrawal(savings, annual_growth, tax_payment)
+                debt += debt_increase
             
             # Погашение долга из активов после налога
             if debt > 0:
@@ -392,7 +422,7 @@ def calculate_ideal_scenario(plan_data, months, planned_expenses_enabled=True):
                     debt -= repayment
                 elif savings > 0:
                     repayment = min(savings, debt)
-                    savings -= repayment
+                    savings, annual_growth, _ = handle_savings_withdrawal(savings, annual_growth, repayment)
                     debt -= repayment
     
     # Финальное погашение долга из активов
@@ -403,7 +433,7 @@ def calculate_ideal_scenario(plan_data, months, planned_expenses_enabled=True):
             debt -= repayment
         if debt > 0 and savings > 0:
             repayment = min(savings, debt)
-            savings -= repayment
+            savings, annual_growth, _ = handle_savings_withdrawal(savings, annual_growth, repayment)
             debt -= repayment
     
     return cushion + savings - debt
@@ -420,6 +450,7 @@ def calculate_linear_scenario(plan_data, months, planned_expenses_enabled=True):
     cushion = min(CUSHION_AMOUNT, initial_capital)
     savings = max(0, initial_capital - CUSHION_AMOUNT)
     debt = 0
+    annual_growth = 0  # В линейном сценарии роста нет, но переменная нужна для единообразия
     
     # События управления долгом
     is_restructured = False
@@ -564,6 +595,7 @@ def calculate_linear_scenario(plan_data, months, planned_expenses_enabled=True):
 def run_simulation(plan_id, plan_data):
     """
     ВЕКТОРИЗОВАНО: добавлен батчевый менеджер случайных чисел для ускорения
+    ИСПРАВЛЕНО: Налогообложение фантомного роста
     """
     print(f"\nЗапуск модели для Плана {plan_id} (начальный доход {plan_data['initial_income']}₽/мес, стартовый капитал {plan_data.get('initial_capital', 0):,}₽)...")
     start_time = time.time()
@@ -582,7 +614,7 @@ def run_simulation(plan_id, plan_data):
         'minor_emergencies': np.zeros(N_SCENARIOS),
         'medium_emergencies': np.zeros(N_SCENARIOS),
         'major_emergencies': np.zeros(N_SCENARIOS),
-        'shock_pcts': [],  # List для всех shock_pct по месяцам/сценарям (flatten позже)
+        'shock_pcts': [],  # List для всех shock_pct по месяцам/сценариям (flatten позже)
         'ideal_wealth': 0,  # Новый показатель
         'linear_wealth': 0,  # Новый показатель
         # ДОБАВЛЕНО: отслеживание потери компаундинга
@@ -680,7 +712,8 @@ def run_simulation(plan_id, plan_data):
                     debt -= repayment
                 elif savings > 0:
                     repayment = min(savings, debt)
-                    savings -= repayment
+                    # ИСПРАВЛЕНИЕ: Корректируем annual_growth при погашении долга
+                    savings, annual_growth, _ = handle_savings_withdrawal(savings, annual_growth, repayment)
                     debt -= repayment
             
             # Поэтапное управление долгом и начисление процентов
@@ -695,6 +728,7 @@ def run_simulation(plan_id, plan_data):
                     debt = 0
                     cushion = 0
                     savings = 0
+                    annual_growth = 0  # ИСПРАВЛЕНИЕ: Обнуляем при банкротстве
                     is_restructured = False
                     
                 # Этап 2: Реструктуризация (1-3 годовых дохода)
@@ -824,16 +858,11 @@ def run_simulation(plan_id, plan_data):
                         should_spend = True
                     
                     if should_spend:
-                        if savings >= expense['amount']:
-                            savings -= expense['amount']
-                            planned_expenses_history.append((month, expense['amount'], expense['name']))
-                            planned_completed[i] = True
-                        else:
-                            # Если не хватает сбережений, добавляем в долг
-                            debt += expense['amount'] - savings
-                            planned_expenses_history.append((month, expense['amount'], expense['name']))
-                            savings = 0
-                            planned_completed[i] = True
+                        # ИСПРАВЛЕНИЕ: Запланированные расходы корректируют annual_growth
+                        savings, annual_growth, debt_increase = handle_savings_withdrawal(savings, annual_growth, expense['amount'])
+                        debt += debt_increase
+                        planned_expenses_history.append((month, expense['amount'], expense['name']))
+                        planned_completed[i] = True
             
             # Новая метрика: Если шок >0, рассчитываем %
             shock_total = emergency_cost + loss
@@ -860,24 +889,20 @@ def run_simulation(plan_id, plan_data):
                 if available > 0:
                     savings += available
             elif available < 0:
-                # Покрытие дефицита из активов - сначала cushion, потом savings
+                # ИСПРАВЛЕНИЕ: Покрытие дефицита с корректировкой annual_growth
                 deficit = -available
                 if cushion >= deficit:
                     cushion -= deficit
                 elif cushion > 0:
                     deficit -= cushion
                     cushion = 0
-                    if savings >= deficit:
-                        savings -= deficit
-                    else:
-                        debt += deficit - savings
-                        savings = 0
+                    # Изъятие из savings с корректировкой annual_growth
+                    savings, annual_growth, debt_increase = handle_savings_withdrawal(savings, annual_growth, deficit)
+                    debt += debt_increase
                 else:
-                    if savings >= deficit:
-                        savings -= deficit
-                    else:
-                        debt += deficit - savings
-                        savings = 0
+                    # Изъятие только из savings
+                    savings, annual_growth, debt_increase = handle_savings_withdrawal(savings, annual_growth, deficit)
+                    debt += debt_increase
                 contribution_type = 'zero'
             else:
                 contribution_type = 'zero'
@@ -890,7 +915,8 @@ def run_simulation(plan_id, plan_data):
                     debt -= repayment
                 elif savings > 0:
                     repayment = min(savings, debt)
-                    savings -= repayment
+                    # ИСПРАВЛЕНИЕ: Корректируем annual_growth при погашении долга
+                    savings, annual_growth, _ = handle_savings_withdrawal(savings, annual_growth, repayment)
                     debt -= repayment
             
             # Денежный поток
@@ -900,11 +926,12 @@ def run_simulation(plan_id, plan_data):
             # Уплата налога (в конце года)
             if month % 12 == 0 and annual_growth > 0:
                 tax_payment = annual_growth * TAX_RATE
+                # ИСПРАВЛЕНИЕ: Выплата налога корректирует annual_growth
                 if savings >= tax_payment:
-                    savings -= tax_payment
+                    savings, annual_growth, _ = handle_savings_withdrawal(savings, annual_growth, tax_payment)
                 else:
-                    debt += tax_payment - savings
-                    savings = 0
+                    savings, annual_growth, debt_increase = handle_savings_withdrawal(savings, annual_growth, tax_payment)
+                    debt += debt_increase
                 
                 # Погашение долга из активов после налога (сначала cushion, потом savings)
                 if debt > 0:
@@ -914,7 +941,8 @@ def run_simulation(plan_id, plan_data):
                         debt -= repayment
                     elif savings > 0:
                         repayment = min(savings, debt)
-                        savings -= repayment
+                        # ИСПРАВЛЕНИЕ: Корректируем annual_growth при погашении долга
+                        savings, annual_growth, _ = handle_savings_withdrawal(savings, annual_growth, repayment)
                         debt -= repayment
             
             # ВИРТУАЛЬНЫЙ СЦЕНАРИЙ (параллельно)
@@ -927,7 +955,8 @@ def run_simulation(plan_id, plan_data):
                     virtual_debt -= virtual_repayment
                 elif virtual_savings > 0:
                     virtual_repayment = min(virtual_savings, virtual_debt)
-                    virtual_savings -= virtual_repayment
+                    # ИСПРАВЛЕНИЕ: Виртуальный сценарий тоже использует корректировку
+                    virtual_savings, virtual_annual_growth, _ = handle_savings_withdrawal(virtual_savings, virtual_annual_growth, virtual_repayment)
                     virtual_debt -= virtual_repayment
             
             # Полная система управления долгом (как в реальном)
@@ -940,6 +969,7 @@ def run_simulation(plan_id, plan_data):
                     virtual_debt = 0
                     virtual_cushion = 0
                     virtual_savings = 0
+                    virtual_annual_growth = 0  # ИСПРАВЛЕНИЕ
                     virtual_is_restructured = False
                 elif virtual_debt > restructuring_threshold:
                     if not virtual_is_restructured:
@@ -977,32 +1007,25 @@ def run_simulation(plan_id, plan_data):
                 if virtual_available > 0:
                     virtual_savings += virtual_available
             elif virtual_available < 0:
+                # ИСПРАВЛЕНИЕ: Виртуальный сценарий тоже корректирует annual_growth
                 deficit = -virtual_available
                 if virtual_cushion >= deficit:
                     virtual_cushion -= deficit
                 elif virtual_cushion > 0:
                     deficit -= virtual_cushion
                     virtual_cushion = 0
-                    if virtual_savings >= deficit:
-                        virtual_savings -= deficit
-                    else:
-                        virtual_debt += deficit - virtual_savings
-                        virtual_savings = 0
+                    virtual_savings, virtual_annual_growth, virtual_debt_increase = handle_savings_withdrawal(virtual_savings, virtual_annual_growth, deficit)
+                    virtual_debt += virtual_debt_increase
                 else:
-                    if virtual_savings >= deficit:
-                        virtual_savings -= deficit
-                    else:
-                        virtual_debt += deficit - virtual_savings
-                        virtual_savings = 0
+                    virtual_savings, virtual_annual_growth, virtual_debt_increase = handle_savings_withdrawal(virtual_savings, virtual_annual_growth, deficit)
+                    virtual_debt += virtual_debt_increase
             
             # КЛЮЧЕВОЕ: Синхронизированные траты из реального сценария
             for planned_month, planned_amount, planned_name in planned_expenses_history:
                 if planned_month == month:
-                    if virtual_savings >= planned_amount:
-                        virtual_savings -= planned_amount
-                    else:
-                        virtual_debt += planned_amount - virtual_savings
-                        virtual_savings = 0
+                    # ИСПРАВЛЕНИЕ: Виртуальный сценарий тоже корректирует annual_growth
+                    virtual_savings, virtual_annual_growth, virtual_debt_increase = handle_savings_withdrawal(virtual_savings, virtual_annual_growth, planned_amount)
+                    virtual_debt += virtual_debt_increase
             
             # Погашение долга в конце месяца
             if virtual_debt > 0:
@@ -1012,17 +1035,19 @@ def run_simulation(plan_id, plan_data):
                     virtual_debt -= virtual_repayment
                 elif virtual_savings > 0:
                     virtual_repayment = min(virtual_savings, virtual_debt)
-                    virtual_savings -= virtual_repayment
+                    # ИСПРАВЛЕНИЕ: Корректируем annual_growth при погашении долга
+                    virtual_savings, virtual_annual_growth, _ = handle_savings_withdrawal(virtual_savings, virtual_annual_growth, virtual_repayment)
                     virtual_debt -= virtual_repayment
             
             # Уплата налога (в конце года)
             if month % 12 == 0 and virtual_annual_growth > 0:
                 virtual_tax_payment = virtual_annual_growth * TAX_RATE
+                # ИСПРАВЛЕНИЕ: Виртуальный сценарий тоже корректирует annual_growth при выплате налога
                 if virtual_savings >= virtual_tax_payment:
-                    virtual_savings -= virtual_tax_payment
+                    virtual_savings, virtual_annual_growth, _ = handle_savings_withdrawal(virtual_savings, virtual_annual_growth, virtual_tax_payment)
                 else:
-                    virtual_debt += virtual_tax_payment - virtual_savings
-                    virtual_savings = 0
+                    virtual_savings, virtual_annual_growth, virtual_debt_increase = handle_savings_withdrawal(virtual_savings, virtual_annual_growth, virtual_tax_payment)
+                    virtual_debt += virtual_debt_increase
                 
                 # Погашение долга после налога
                 if virtual_debt > 0:
@@ -1032,7 +1057,7 @@ def run_simulation(plan_id, plan_data):
                         virtual_debt -= virtual_repayment
                     elif virtual_savings > 0:
                         virtual_repayment = min(virtual_savings, virtual_debt)
-                        virtual_savings -= virtual_repayment
+                        virtual_savings, virtual_annual_growth, _ = handle_savings_withdrawal(virtual_savings, virtual_annual_growth, virtual_repayment)
                         virtual_debt -= virtual_repayment
             
             # Обновление счетчиков
@@ -1055,7 +1080,8 @@ def run_simulation(plan_id, plan_data):
                             debt -= repayment
                         if debt > 0 and savings > 0:
                             repayment = min(savings, debt)
-                            savings -= repayment
+                            # ИСПРАВЛЕНИЕ: Финальное погашение тоже корректирует annual_growth
+                            savings, annual_growth, _ = handle_savings_withdrawal(savings, annual_growth, repayment)
                             debt -= repayment
                     
                     # Финальное погашение долга для виртуального сценария
@@ -1066,7 +1092,7 @@ def run_simulation(plan_id, plan_data):
                             virtual_debt -= virtual_repayment
                         if virtual_debt > 0 and virtual_savings > 0:
                             virtual_repayment = min(virtual_savings, virtual_debt)
-                            virtual_savings -= virtual_repayment
+                            virtual_savings, virtual_annual_growth, _ = handle_savings_withdrawal(virtual_savings, virtual_annual_growth, virtual_repayment)
                             virtual_debt -= virtual_repayment
                     
                     horizon_data = results_by_horizon[years]
