@@ -42,6 +42,7 @@ def main():
     print(f"- НОВОЕ: Динамические планы с изменением дохода/расходов во времени")
     print(f"- ИСПРАВЛЕНО: Виртуальный сценарий для правильного расчета потерь компаундинга")
     print(f"- ИСПРАВЛЕНО: Единая система долгов во всех сценариях")
+    print(f"- ИСПРАВЛЕНО: Запланированные расходы типа 'time' выполняются только при достаточности средств")
     print(f"- ВЕКТОРИЗОВАНО: Батчевая генерация случайных чисел для ускорения")
     print(f"- ОПТИМИЗИРОВАНО: Количество сценариев снижено до {N_SCENARIOS} для веб-версии")
 
@@ -65,7 +66,7 @@ def main():
             print(f"  Запланированные расходы: {len(plan_expenses)} событий")
             for i, expense in enumerate(plan_expenses):
                 if expense['type'] == 'time':
-                    print(f"    ├── {expense['name']}: {expense['amount']:,}₽ (начиная с года {expense['condition']})")
+                    print(f"    ├── {expense['name']}: {expense['amount']:,}₽ (начиная с года {expense['condition']}, при наличии средств)")
                 else:
                     print(f"    ├── {expense['name']}: {expense['amount']:,}₽ (при накоплении {expense['condition']:,}₽)")
 
@@ -81,18 +82,6 @@ def main():
     print(f"  Средняя длительность: {FULL_LOSS_DURATION_MEAN:.1f} мес")
     print("="*70)
 
-    # Запуск симуляций
-    start_total = time.time()
-    all_results = {}
-
-    for plan_id, plan_data in PLANS.items():
-        all_results[plan_id] = run_simulation(plan_id, plan_data)
-
-    total_time = time.time() - start_total
-
-    # Вывод результатов
-    print_comparative_results(all_results)
-
     # Сохранение результатов в файл
     base_results_dir = r"Y:\code\monte carlo\results"
     os.makedirs(base_results_dir, exist_ok=True)
@@ -102,6 +91,14 @@ def main():
     unique_folder = f"simulation_vectorized_{timestamp}"  # Изменено название папки
     results_dir = os.path.join(base_results_dir, unique_folder)
     os.makedirs(results_dir, exist_ok=True)
+
+    # Настройка логирования аномалий
+    anomaly_log_filename = "debug_anomalies.log"
+    anomaly_log_filepath = os.path.join(results_dir, anomaly_log_filename)
+
+    # Устанавливаем глобальный путь для логирования аномалий
+    import config
+    config.ANOMALY_LOG_FILE = anomaly_log_filepath
 
     # Имена файлов в уникальной папке
     txt_filename = "main_results.txt"
@@ -134,8 +131,22 @@ def main():
     print(f"  ├── {debt_filename}")
     print(f"  ├── {key_scenarios_filename}")
     print(f"  ├── {wealth_distribution_filename}")
-    print(f"  └── {params_filename}")
+    print(f"  ├── {params_filename}")
+    print(f"  └── {anomaly_log_filename} (если найдены аномалии)")
 
+    # Запуск симуляций
+    start_total = time.time()
+    all_results = {}
+
+    for plan_id, plan_data in PLANS.items():
+        all_results[plan_id] = run_simulation(plan_id, plan_data)
+
+    total_time = time.time() - start_total
+
+    # Вывод результатов
+    print_comparative_results(all_results)
+
+    print(f"\nСохранение результатов в файлы...")
     try:
         save_results_to_text(all_results, txt_filepath)
         save_shock_analysis_to_text(all_results, shock_filepath)
@@ -146,6 +157,17 @@ def main():
         save_simulation_parameters(params_filepath)
         print("✓ Результаты успешно сохранены!")
         print(f"✓ Путь к папке: {results_dir}")
+        
+        # Проверяем, создался ли файл аномалий
+        if os.path.exists(anomaly_log_filepath):
+            file_size = os.path.getsize(anomaly_log_filepath)
+            if file_size > 0:
+                print(f"⚠️  Обнаружены финансовые аномалии! Смотрите {anomaly_log_filename}")
+            else:
+                print(f"✓ Финансовых аномалий не обнаружено")
+        else:
+            print(f"✓ Финансовых аномалий не обнаружено")
+            
     except Exception as e:
         print(f"✗ Ошибка при сохранении: {e}")
 

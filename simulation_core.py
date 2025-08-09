@@ -1,6 +1,8 @@
 import numpy as np
 import random
 import time
+import datetime
+import os
 from scipy.stats import gaussian_kde
 
 # Импорты из config.py (будут доступны после создания config.py) слово
@@ -13,7 +15,8 @@ from config import (
     MAJOR_EMERGENCY_PROB, MAJOR_EMERGENCY_COST,
     MINOR_CLUSTER_PROB, MAJOR_CLUSTER_LAMBDA,
     PARTIAL_LOSS_PROB, PARTIAL_LOSS_RATE, PARTIAL_LOSS_DURATION,
-    FULL_LOSS_PROB, FULL_LOSS_DURATION_MEAN, FULL_LOSS_DURATION_SD
+    FULL_LOSS_PROB, FULL_LOSS_DURATION_MEAN, FULL_LOSS_DURATION_SD,
+    ANOMALY_LOG_FILE
 )
 
 # Включение/выключение валидации (для отладки)
@@ -67,12 +70,29 @@ class RandomBatchManager:
 def validate_financial_state(savings, annual_growth, context=""):
     """
     Проверяет логическую консистентность финансового состояния
+    Записывает аномалии в файл для анализа редких багов в production
     """
     if not DEBUG_VALIDATION:
         return True
         
     if savings <= 0 and annual_growth > 0:
-        print(f"WARNING: Аномалия в {context}: savings={savings:.2f}, annual_growth={annual_growth:.2f}")
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        anomaly_msg = f"[{timestamp}] ФИНАНСОВАЯ АНОМАЛИЯ: {context} | savings={savings:.6f}, annual_growth={annual_growth:.6f}"
+        
+        # Вывод в консоль
+        print(f"WARNING: {anomaly_msg}")
+        
+        # Запись в файл аномалий (если путь установлен)
+        if ANOMALY_LOG_FILE:
+            try:
+                # Создаем папку если не существует
+                os.makedirs(os.path.dirname(ANOMALY_LOG_FILE), exist_ok=True)
+                
+                with open(ANOMALY_LOG_FILE, 'a', encoding='utf-8') as f:
+                    f.write(anomaly_msg + "\n")
+            except Exception as e:
+                print(f"Ошибка записи в лог аномалий {ANOMALY_LOG_FILE}: {e}")
+        
         return False
     return True
 
