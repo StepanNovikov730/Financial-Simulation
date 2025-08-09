@@ -16,6 +16,9 @@ from config import (
     FULL_LOSS_PROB, FULL_LOSS_DURATION_MEAN, FULL_LOSS_DURATION_SD
 )
 
+# Включение/выключение валидации (для отладки)
+DEBUG_VALIDATION = False  # Установите True для включения валидации
+
 
 class RandomBatchManager:
     """
@@ -65,6 +68,9 @@ def validate_financial_state(savings, annual_growth, context=""):
     """
     Проверяет логическую консистентность финансового состояния
     """
+    if not DEBUG_VALIDATION:
+        return True
+        
     if savings <= 0 and annual_growth > 0:
         print(f"WARNING: Аномалия в {context}: savings={savings:.2f}, annual_growth={annual_growth:.2f}")
         return False
@@ -774,6 +780,9 @@ def run_simulation(plan_id, plan_data):
                 growth = savings * SAVINGS_RETURN_RATE
                 annual_growth += growth
                 savings += growth
+                # ВАЛИДАЦИЯ: Проверяем состояние после начисления роста
+                if DEBUG_VALIDATION:
+                    validate_financial_state(savings, annual_growth, f"Plan {plan_id}, scenario {scenario}, month {month} - after growth")
             
             available = current_income - current_expenses
             emergency_cost = 0
@@ -944,12 +953,20 @@ def run_simulation(plan_id, plan_data):
             # Уплата налога (в конце года)
             if month % 12 == 0 and annual_growth > 0:
                 tax_payment = annual_growth * TAX_RATE
+                # ВАЛИДАЦИЯ: Проверяем состояние перед выплатой налога
+                if DEBUG_VALIDATION:
+                    validate_financial_state(savings, annual_growth, f"Plan {plan_id}, scenario {scenario}, month {month} - before tax")
+                
                 # ИСПРАВЛЕНИЕ: Выплата налога корректирует annual_growth
                 if savings >= tax_payment:
                     savings, annual_growth, _ = handle_savings_withdrawal(savings, annual_growth, tax_payment)
                 else:
                     savings, annual_growth, debt_increase = handle_savings_withdrawal(savings, annual_growth, tax_payment)
                     debt += debt_increase
+                
+                # ВАЛИДАЦИЯ: Проверяем состояние после выплаты налога
+                if DEBUG_VALIDATION:
+                    validate_financial_state(savings, annual_growth, f"Plan {plan_id}, scenario {scenario}, month {month} - after tax")
                 
                 # Погашение долга из активов после налога (сначала cushion, потом savings)
                 if debt > 0:
@@ -1060,12 +1077,20 @@ def run_simulation(plan_id, plan_data):
             # Уплата налога (в конце года)
             if month % 12 == 0 and virtual_annual_growth > 0:
                 virtual_tax_payment = virtual_annual_growth * TAX_RATE
+                # ВАЛИДАЦИЯ: Проверяем виртуальное состояние перед выплатой налога
+                if DEBUG_VALIDATION:
+                    validate_financial_state(virtual_savings, virtual_annual_growth, f"Plan {plan_id}, scenario {scenario}, month {month} - virtual before tax")
+                
                 # ИСПРАВЛЕНИЕ: Виртуальный сценарий тоже корректирует annual_growth при выплате налога
                 if virtual_savings >= virtual_tax_payment:
                     virtual_savings, virtual_annual_growth, _ = handle_savings_withdrawal(virtual_savings, virtual_annual_growth, virtual_tax_payment)
                 else:
                     virtual_savings, virtual_annual_growth, virtual_debt_increase = handle_savings_withdrawal(virtual_savings, virtual_annual_growth, virtual_tax_payment)
                     virtual_debt += virtual_debt_increase
+                
+                # ВАЛИДАЦИЯ: Проверяем виртуальное состояние после выплаты налога
+                if DEBUG_VALIDATION:
+                    validate_financial_state(virtual_savings, virtual_annual_growth, f"Plan {plan_id}, scenario {scenario}, month {month} - virtual after tax")
                 
                 # Погашение долга после налога
                 if virtual_debt > 0:
