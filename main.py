@@ -30,7 +30,7 @@ def main():
     
     # Вывод информации о симуляции
     print("="*70)
-    print(" СРАВНИТЕЛЬНАЯ ФИНАНСОВАЯ СИМУЛЯЦИЯ С ПЛАНАМИ (ТРАЕКТОРИЯМИ) ")
+    print(" ВЕКТОРИЗОВАННАЯ ФИНАНСОВАЯ СИМУЛЯЦИЯ С ПЛАНАМИ (ТРАЕКТОРИЯМИ) ")
     print("="*70)
     print(f"Сценариев: {N_SCENARIOS}, Месяцев: {N_MONTHS} (30 лет)")
     print("Базовые параметры:")
@@ -42,6 +42,8 @@ def main():
     print(f"- НОВОЕ: Динамические планы с изменением дохода/расходов во времени")
     print(f"- ИСПРАВЛЕНО: Виртуальный сценарий для правильного расчета потерь компаундинга")
     print(f"- ИСПРАВЛЕНО: Единая система долгов во всех сценариях")
+    print(f"- ВЕКТОРИЗОВАНО: Батчевая генерация случайных чисел для ускорения")
+    print(f"- ОПТИМИЗИРОВАНО: Количество сценариев снижено до {N_SCENARIOS} для веб-версии")
 
     print("\nПланы (траектории):")
     for plan_id, plan_data in PLANS.items():
@@ -97,7 +99,7 @@ def main():
 
     # Генерация уникального имени папки с датой и временем
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    unique_folder = f"simulation_plans_{timestamp}"
+    unique_folder = f"simulation_vectorized_{timestamp}"  # Изменено название папки
     results_dir = os.path.join(base_results_dir, unique_folder)
     os.makedirs(results_dir, exist_ok=True)
 
@@ -148,6 +150,8 @@ def main():
         print(f"✗ Ошибка при сохранении: {e}")
 
     print(f"\nОбщее время расчета: {total_time/60:.1f} минут")
+    print(f"Скорость: {N_SCENARIOS/total_time:.0f} сценариев/сек")
+    print(f"ВЕКТОРИЗОВАНО: Использованы батчи случайных чисел для ускорения")
 
 
 if __name__ == "__main__":
