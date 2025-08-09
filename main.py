@@ -96,12 +96,21 @@ def main():
     anomaly_log_filename = "debug_anomalies.log"
     anomaly_log_filepath = os.path.join(results_dir, anomaly_log_filename)
 
+    print(f"DEBUG: Создаем путь к логу: {anomaly_log_filepath}")
+    print(f"DEBUG: Папка results_dir: {results_dir}")
+    print(f"DEBUG: Папка существует: {os.path.exists(results_dir)}")
+
     # Устанавливаем глобальный путь для логирования аномалий
     import config
     config.ANOMALY_LOG_FILE = anomaly_log_filepath
 
+    # DEBUG: Отладочная информация
+    print(f"DEBUG: Путь к логу аномалий: {anomaly_log_filepath}")
+    print(f"DEBUG: config.ANOMALY_LOG_FILE установлен: {config.ANOMALY_LOG_FILE}")
+
     # Инициализируем лог аномалий
     initialize_anomaly_log()
+    print(f"DEBUG: initialize_anomaly_log() вызван")
 
     # Имена файлов в уникальной папке
     txt_filename = "main_results.txt"
@@ -148,6 +157,11 @@ def main():
 
     # Финализируем лог аномалий
     finalize_anomaly_log()
+    print(f"DEBUG: finalize_anomaly_log() вызван")
+    print(f"DEBUG: Файл существует после финализации: {os.path.exists(anomaly_log_filepath)}")
+    if os.path.exists(anomaly_log_filepath):
+        file_size = os.path.getsize(anomaly_log_filepath)
+        print(f"DEBUG: Размер файла: {file_size} байт")
 
     # Вывод результатов
     print_comparative_results(all_results)
@@ -165,21 +179,38 @@ def main():
         print(f"✓ Путь к папке: {results_dir}")
         
         # Проверяем результат валидации в файле аномалий
+        print(f"DEBUG: Начинаем проверку лог-файла...")
         if os.path.exists(anomaly_log_filepath):
             print(f"✓ Лог валидации создан: {anomaly_log_filename}")
             
             # Проверяем наличие аномалий по размеру файла и содержимому
-            with open(anomaly_log_filepath, 'r', encoding='utf-8') as f:
-                content = f.read()
-                if 'ФИНАНСОВАЯ АНОМАЛИЯ' in content:
-                    print(f"⚠️  Обнаружены финансовые аномалии! Смотрите {anomaly_log_filename}")
-                else:
-                    print(f"✓ Финансовых аномалий не обнаружено - все проверки пройдены")
+            try:
+                with open(anomaly_log_filepath, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    print(f"DEBUG: Содержимое файла прочитано, длина: {len(content)} символов")
+                    if 'ФИНАНСОВАЯ АНОМАЛИЯ' in content:
+                        print(f"⚠️  Обнаружены финансовые аномалии! Смотрите {anomaly_log_filename}")
+                    else:
+                        print(f"✓ Финансовых аномалий не обнаружено - все проверки пройдены")
+            except Exception as e:
+                print(f"DEBUG: Ошибка при чтении файла: {e}")
         else:
             print(f"⚠️  Лог валидации не создан")
+            print(f"DEBUG: Проверяем папку: {os.path.dirname(anomaly_log_filepath)}")
+            print(f"DEBUG: Папка существует: {os.path.exists(os.path.dirname(anomaly_log_filepath))}")
+            print(f"DEBUG: Права на запись в папку: {os.access(os.path.dirname(anomaly_log_filepath), os.W_OK)}")
             
     except Exception as e:
         print(f"✗ Ошибка при сохранении: {e}")
+        print(f"DEBUG: Детали ошибки:")
+        import traceback
+        print(traceback.format_exc())
+        
+        # Проверяем состояние лог-файла даже при ошибке
+        print(f"DEBUG: Файл лога существует: {os.path.exists(anomaly_log_filepath)}")
+        if os.path.exists(anomaly_log_filepath):
+            file_size = os.path.getsize(anomaly_log_filepath)
+            print(f"DEBUG: Размер лог-файла: {file_size} байт")
 
     print(f"\nОбщее время расчета: {total_time/60:.1f} минут")
     print(f"Скорость: {N_SCENARIOS/total_time:.0f} сценариев/сек")
