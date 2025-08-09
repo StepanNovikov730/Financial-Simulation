@@ -14,7 +14,7 @@ from config import (
     PARTIAL_LOSS_PROB, PARTIAL_LOSS_RATE, PARTIAL_LOSS_DURATION,
     FULL_LOSS_PROB, FULL_LOSS_DURATION_MEAN
 )
-from simulation_core import run_simulation
+from simulation_core import run_simulation, initialize_anomaly_log, finalize_anomaly_log
 from reporting import (
     print_comparative_results, save_results_to_text, save_shock_analysis_to_text, 
     save_planned_expenses_analysis, save_debt_analysis, save_key_scenarios_analysis, 
@@ -100,6 +100,9 @@ def main():
     import config
     config.ANOMALY_LOG_FILE = anomaly_log_filepath
 
+    # Инициализируем лог аномалий
+    initialize_anomaly_log()
+
     # Имена файлов в уникальной папке
     txt_filename = "main_results.txt"
     txt_filepath = os.path.join(results_dir, txt_filename)
@@ -132,7 +135,7 @@ def main():
     print(f"  ├── {key_scenarios_filename}")
     print(f"  ├── {wealth_distribution_filename}")
     print(f"  ├── {params_filename}")
-    print(f"  └── {anomaly_log_filename} (если найдены аномалии)")
+    print(f"  └── {anomaly_log_filename} (лог валидации)")
 
     # Запуск симуляций
     start_total = time.time()
@@ -142,6 +145,9 @@ def main():
         all_results[plan_id] = run_simulation(plan_id, plan_data)
 
     total_time = time.time() - start_total
+
+    # Финализируем лог аномалий
+    finalize_anomaly_log()
 
     # Вывод результатов
     print_comparative_results(all_results)
@@ -158,15 +164,19 @@ def main():
         print("✓ Результаты успешно сохранены!")
         print(f"✓ Путь к папке: {results_dir}")
         
-        # Проверяем, создался ли файл аномалий
+        # Проверяем результат валидации в файле аномалий
         if os.path.exists(anomaly_log_filepath):
-            file_size = os.path.getsize(anomaly_log_filepath)
-            if file_size > 0:
-                print(f"⚠️  Обнаружены финансовые аномалии! Смотрите {anomaly_log_filename}")
-            else:
-                print(f"✓ Финансовых аномалий не обнаружено")
+            print(f"✓ Лог валидации создан: {anomaly_log_filename}")
+            
+            # Проверяем наличие аномалий по размеру файла и содержимому
+            with open(anomaly_log_filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+                if 'ФИНАНСОВАЯ АНОМАЛИЯ' in content:
+                    print(f"⚠️  Обнаружены финансовые аномалии! Смотрите {anomaly_log_filename}")
+                else:
+                    print(f"✓ Финансовых аномалий не обнаружено - все проверки пройдены")
         else:
-            print(f"✓ Финансовых аномалий не обнаружено")
+            print(f"⚠️  Лог валидации не создан")
             
     except Exception as e:
         print(f"✗ Ошибка при сохранении: {e}")
