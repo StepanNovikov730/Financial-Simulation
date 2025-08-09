@@ -17,7 +17,7 @@ from config import (
 )
 
 # Включение/выключение валидации (для отладки)
-DEBUG_VALIDATION = False  # Установите True для включения валидации
+DEBUG_VALIDATION = True  # Установите True для включения валидации
 
 
 class RandomBatchManager:
