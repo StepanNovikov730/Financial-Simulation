@@ -162,6 +162,41 @@ def finalize_anomaly_log():
             print(f"Ошибка финализации лога аномалий: {e}")
 
 
+def validate_financial_state(savings, annual_growth, context=""):
+    """
+    Проверяет логическую консистентность финансового состояния
+    Записывает аномалии в файл для анализа редких багов в production
+    """
+    global _validation_stats
+    
+    if not DEBUG_VALIDATION:
+        return True
+    
+    # Увеличиваем счетчик проверок
+    _validation_stats['total_checks'] += 1
+    _validation_stats['last_check_time'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+    if savings <= 0 and annual_growth > 0:
+        _validation_stats['anomalies_found'] += 1
+        
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        anomaly_msg = f"[{timestamp}] ФИНАНСОВАЯ АНОМАЛИЯ #{_validation_stats['anomalies_found']}: {context} | savings={savings:.6f}, annual_growth={annual_growth:.6f}"
+        
+        # Вывод в консоль
+        print(f"WARNING: {anomaly_msg}")
+        
+        # Запись в файл аномалий
+        if ANOMALY_LOG_FILE:
+            try:
+                with open(ANOMALY_LOG_FILE, 'a', encoding='utf-8') as f:
+                    f.write(anomaly_msg + "\n")
+            except Exception as e:
+                print(f"Ошибка записи аномалии в лог {ANOMALY_LOG_FILE}: {e}")
+        
+        return False
+    return True
+
+
 def handle_savings_withdrawal(savings, annual_growth, withdrawal_amount):
     """
     ИСПРАВЛЕНО: Корректная обработка изъятия из savings с учетом налогов
