@@ -405,7 +405,7 @@ def calculate_ideal_scenario(plan_data, months, planned_expenses_enabled=True):
                     
                 should_spend = False
                 
-                if expense['type'] == 'time' and current_year >= expense['condition']:
+                if expense['type'] == 'time' and current_year >= expense['condition'] and savings >= expense['amount']:
                     should_spend = True
                 elif expense['type'] == 'savings_target' and savings >= expense['condition']:
                     should_spend = True
@@ -576,7 +576,7 @@ def calculate_linear_scenario(plan_data, months, planned_expenses_enabled=True):
                     
                 should_spend = False
                 
-                if expense['type'] == 'time' and current_year >= expense['condition']:
+                if expense['type'] == 'time' and current_year >= expense['condition'] and savings >= expense['amount']:
                     should_spend = True
                 elif expense['type'] == 'savings_target' and savings >= expense['condition']:
                     should_spend = True
@@ -879,7 +879,7 @@ def run_simulation(plan_id, plan_data):
                         
                     should_spend = False
                     
-                    if expense['type'] == 'time' and current_year >= expense['condition']:
+                    if expense['type'] == 'time' and current_year >= expense['condition'] and savings >= expense['amount']:
                         should_spend = True
                     elif expense['type'] == 'savings_target' and savings >= expense['condition']:
                         should_spend = True
