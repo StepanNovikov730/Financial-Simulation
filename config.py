@@ -128,3 +128,10 @@ PLANS = {
 
 # ===== ЛОГИРОВАНИЕ АНОМАЛИЙ =====
 ANOMALY_LOG_FILE = None  # Устанавливается в main.py
+
+# ===== НОВОЕ: СТАТИСТИКА ВАЛИДАЦИИ =====
+VALIDATION_STATS = {
+    'total_checks': 0,
+    'total_anomalies': 0,
+    'anomaly_details': []
+}

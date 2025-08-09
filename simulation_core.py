@@ -16,11 +16,117 @@ from config import (
     MINOR_CLUSTER_PROB, MAJOR_CLUSTER_LAMBDA,
     PARTIAL_LOSS_PROB, PARTIAL_LOSS_RATE, PARTIAL_LOSS_DURATION,
     FULL_LOSS_PROB, FULL_LOSS_DURATION_MEAN, FULL_LOSS_DURATION_SD,
-    ANOMALY_LOG_FILE
+    VALIDATION_STATS, RANDOM_SEED
 )
+import config  # Импортируем модуль целиком для доступа к ANOMALY_LOG_FILE
 
 # Включение/выключение валидации (для отладки)
 DEBUG_VALIDATION = True  # Установите True для включения валидации
+
+
+def initialize_validation_log():
+    """
+    НОВАЯ ФУНКЦИЯ: Инициализирует лог валидации с заголовком
+    """
+    if not config.ANOMALY_LOG_FILE:
+        print("✗ Путь к логу валидации не установлен")
+        return
+    
+    try:
+        # Создаем папку если не существует
+        log_dir = os.path.dirname(config.ANOMALY_LOG_FILE)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+            print(f"✓ Папка создана: {log_dir}")
+        
+        # Сбрасываем статистику
+        VALIDATION_STATS['total_checks'] = 0
+        VALIDATION_STATS['total_anomalies'] = 0
+        VALIDATION_STATS['anomaly_details'] = []
+        
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Создаем новый лог с заголовком
+        with open(config.ANOMALY_LOG_FILE, 'w', encoding='utf-8') as f:
+            f.write("="*80 + "\n")
+            f.write(" ОТЧЕТ ВАЛИДАЦИИ ФИНАНСОВЫХ СОСТОЯНИЙ \n")
+            f.write("="*80 + "\n")
+            f.write(f"Дата и время запуска: {timestamp}\n")
+            f.write(f"Random seed: {RANDOM_SEED}\n")
+            f.write(f"Количество сценариев: {N_SCENARIOS:,}\n")
+            f.write(f"Количество месяцев: {N_MONTHS} (30 лет)\n")
+            f.write(f"Горизонты анализа: {HORIZONS} лет\n")
+            f.write(f"Валидация включена: {DEBUG_VALIDATION}\n")
+            f.write("="*80 + "\n\n")
+            f.write("ОПИСАНИЕ ВАЛИДАЦИИ:\n")
+            f.write("Проверяется логическая консистентность финансового состояния:\n")
+            f.write("- АНОМАЛИЯ: savings <= 0 И annual_growth > 0\n")
+            f.write("- Это указывает на ошибку в расчете налогооблагаемой базы\n")
+            f.write("- При отсутствии сбережений не должно быть накопленного роста\n\n")
+            f.write("НАЙДЕННЫЕ АНОМАЛИИ:\n")
+            f.write("-" * 80 + "\n")
+        
+        print(f"✓ Лог валидации инициализирован: {config.ANOMALY_LOG_FILE}")
+        
+    except Exception as e:
+        print(f"✗ Ошибка инициализации лога валидации {config.ANOMALY_LOG_FILE}: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def finalize_validation_log():
+    """
+    НОВАЯ ФУНКЦИЯ: Финализирует лог валидации с итоговой статистикой
+    """
+    if not config.ANOMALY_LOG_FILE:
+        print("✗ Путь к логу валидации не установлен")
+        return
+    
+    try:
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        with open(config.ANOMALY_LOG_FILE, 'a', encoding='utf-8') as f:
+            f.write("\n" + "="*80 + "\n")
+            f.write(" ИТОГОВАЯ СТАТИСТИКА ВАЛИДАЦИИ \n")
+            f.write("="*80 + "\n")
+            f.write(f"Время завершения: {timestamp}\n")
+            f.write(f"Общее количество проверок: {VALIDATION_STATS['total_checks']:,}\n")
+            f.write(f"Обнаружено аномалий: {VALIDATION_STATS['total_anomalies']:,}\n")
+            
+            if VALIDATION_STATS['total_checks'] > 0:
+                anomaly_rate = (VALIDATION_STATS['total_anomalies'] / VALIDATION_STATS['total_checks']) * 100
+                f.write(f"Частота аномалий: {anomaly_rate:.6f}%\n")
+            else:
+                f.write("Частота аномалий: 0% (проверки не выполнялись)\n")
+            
+            f.write("\n")
+            
+            if VALIDATION_STATS['total_anomalies'] == 0:
+                f.write("🎉 УСПЕХ: Все финансовые состояния прошли валидацию!\n")
+                f.write("✓ Логическая консистентность подтверждена\n")
+                f.write("✓ Ошибок в расчете налогооблагаемой базы не обнаружено\n")
+                f.write("✓ Система корректно обрабатывает изъятия из сбережений\n")
+            else:
+                f.write("⚠️  ОБНАРУЖЕНЫ ПРОБЛЕМЫ:\n")
+                f.write(f"Найдено {VALIDATION_STATS['total_anomalies']} финансовых аномалий\n")
+                f.write("Рекомендуется проанализировать детали выше\n")
+                f.write("Возможные причины:\n")
+                f.write("- Ошибка в функции handle_savings_withdrawal\n")
+                f.write("- Некорректная обработка налогообложения\n")
+                f.write("- Проблемы с синхронизацией savings и annual_growth\n")
+            
+            f.write("\n" + "="*80 + "\n")
+        
+        # Выводим статистику в консоль
+        if VALIDATION_STATS['total_anomalies'] == 0:
+            print(f"✓ Валидация завершена успешно: {VALIDATION_STATS['total_checks']:,} проверок, аномалий не найдено")
+        else:
+            print(f"⚠️  Валидация завершена: {VALIDATION_STATS['total_checks']:,} проверок, найдено {VALIDATION_STATS['total_anomalies']:,} аномалий")
+        
+    except Exception as e:
+        print(f"✗ Ошибка финализации лога валидации {config.ANOMALY_LOG_FILE}: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 class RandomBatchManager:
@@ -69,29 +175,48 @@ class RandomBatchManager:
 
 def validate_financial_state(savings, annual_growth, context=""):
     """
-    Проверяет логическую консистентность финансового состояния
+    ОБНОВЛЕНО: Проверяет логическую консистентность финансового состояния
     Записывает аномалии в файл для анализа редких багов в production
+    Ведет подробную статистику проверок
     """
+    # Увеличиваем счетчик проверок
+    VALIDATION_STATS['total_checks'] += 1
+    
     if not DEBUG_VALIDATION:
         return True
         
+    # Проверяем основную аномалию: нет сбережений, но есть накопленный рост
     if savings <= 0 and annual_growth > 0:
+        VALIDATION_STATS['total_anomalies'] += 1
+        
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        anomaly_msg = f"[{timestamp}] ФИНАНСОВАЯ АНОМАЛИЯ: {context} | savings={savings:.6f}, annual_growth={annual_growth:.6f}"
+        anomaly_msg = f"[{timestamp}] ФИНАНСОВАЯ АНОМАЛИЯ #{VALIDATION_STATS['total_anomalies']}: {context}"
+        anomaly_details = f"  ├── savings: {savings:.6f} ₽"
+        anomaly_details += f"\n  ├── annual_growth: {annual_growth:.6f} ₽"
+        anomaly_details += f"\n  └── Проблема: накопленный рост при отсутствии сбережений"
+        
+        full_anomaly = anomaly_msg + "\n" + anomaly_details
+        
+        # Сохраняем детали для статистики
+        VALIDATION_STATS['anomaly_details'].append({
+            'timestamp': timestamp,
+            'context': context,
+            'savings': savings,
+            'annual_growth': annual_growth,
+            'anomaly_number': VALIDATION_STATS['total_anomalies']
+        })
         
         # Вывод в консоль
-        print(f"WARNING: {anomaly_msg}")
+        print(f"WARNING: ФИНАНСОВАЯ АНОМАЛИЯ #{VALIDATION_STATS['total_anomalies']}: {context}")
+        print(f"         savings={savings:.6f}, annual_growth={annual_growth:.6f}")
         
         # Запись в файл аномалий (если путь установлен)
-        if ANOMALY_LOG_FILE:
+        if config.ANOMALY_LOG_FILE:
             try:
-                # Создаем папку если не существует
-                os.makedirs(os.path.dirname(ANOMALY_LOG_FILE), exist_ok=True)
-                
-                with open(ANOMALY_LOG_FILE, 'a', encoding='utf-8') as f:
-                    f.write(anomaly_msg + "\n")
+                with open(config.ANOMALY_LOG_FILE, 'a', encoding='utf-8') as f:
+                    f.write(full_anomaly + "\n\n")
             except Exception as e:
-                print(f"Ошибка записи в лог аномалий {ANOMALY_LOG_FILE}: {e}")
+                print(f"Ошибка записи в лог аномалий {config.ANOMALY_LOG_FILE}: {e}")
         
         return False
     return True

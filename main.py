@@ -14,12 +14,13 @@ from config import (
     PARTIAL_LOSS_PROB, PARTIAL_LOSS_RATE, PARTIAL_LOSS_DURATION,
     FULL_LOSS_PROB, FULL_LOSS_DURATION_MEAN
 )
-from simulation_core import run_simulation
+from simulation_core import run_simulation, initialize_validation_log, finalize_validation_log
 from reporting import (
     print_comparative_results, save_results_to_text, save_shock_analysis_to_text, 
     save_planned_expenses_analysis, save_debt_analysis, save_key_scenarios_analysis, 
     save_wealth_distribution_analysis, save_simulation_parameters
 )
+import config  # Импортируем модуль для установки ANOMALY_LOG_FILE
 
 # ===== ВОСПРОИЗВОДИМОСТЬ =====
 random.seed(RANDOM_SEED)
@@ -45,6 +46,7 @@ def main():
     print(f"- ИСПРАВЛЕНО: Запланированные расходы типа 'time' выполняются только при достаточности средств")
     print(f"- ВЕКТОРИЗОВАНО: Батчевая генерация случайных чисел для ускорения")
     print(f"- ОПТИМИЗИРОВАНО: Количество сценариев снижено до {N_SCENARIOS} для веб-версии")
+    print(f"- НОВОЕ: Детальная валидация финансовых состояний с логированием")
 
     print("\nПланы (траектории):")
     for plan_id, plan_data in PLANS.items():
@@ -84,21 +86,39 @@ def main():
 
     # Сохранение результатов в файл
     base_results_dir = r"Y:\code\monte carlo\results"
-    os.makedirs(base_results_dir, exist_ok=True)
+    try:
+        os.makedirs(base_results_dir, exist_ok=True)
+        print(f"✓ Базовая директория создана/существует: {base_results_dir}")
+    except Exception as e:
+        print(f"✗ Ошибка создания базовой директории {base_results_dir}: {e}")
+        # Fallback на текущую директорию
+        base_results_dir = "results"
+        os.makedirs(base_results_dir, exist_ok=True)
+        print(f"✓ Используем fallback директорию: {base_results_dir}")
 
     # Генерация уникального имени папки с датой и временем
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     unique_folder = f"simulation_vectorized_{timestamp}"  # Изменено название папки
     results_dir = os.path.join(base_results_dir, unique_folder)
-    os.makedirs(results_dir, exist_ok=True)
+    
+    try:
+        os.makedirs(results_dir, exist_ok=True)
+        print(f"✓ Директория результатов создана: {results_dir}")
+    except Exception as e:
+        print(f"✗ Ошибка создания директории результатов {results_dir}: {e}")
+        return
 
     # Настройка логирования аномалий
     anomaly_log_filename = "debug_anomalies.log"
     anomaly_log_filepath = os.path.join(results_dir, anomaly_log_filename)
 
-    # Устанавливаем глобальный путь для логирования аномалий
-    import config
+    # ИСПРАВЛЕНО: Устанавливаем глобальный путь для логирования аномалий
     config.ANOMALY_LOG_FILE = anomaly_log_filepath
+    print(f"✓ Путь к логу валидации установлен: {config.ANOMALY_LOG_FILE}")
+
+    # НОВОЕ: Инициализация лога валидации
+    print(f"\nИнициализация системы валидации...")
+    initialize_validation_log()
 
     # Имена файлов в уникальной папке
     txt_filename = "main_results.txt"
@@ -132,7 +152,7 @@ def main():
     print(f"  ├── {key_scenarios_filename}")
     print(f"  ├── {wealth_distribution_filename}")
     print(f"  ├── {params_filename}")
-    print(f"  └── {anomaly_log_filename} (если найдены аномалии)")
+    print(f"  └── {anomaly_log_filename} (лог валидации - создается всегда)")
 
     # Запуск симуляций
     start_total = time.time()
@@ -142,6 +162,10 @@ def main():
         all_results[plan_id] = run_simulation(plan_id, plan_data)
 
     total_time = time.time() - start_total
+
+    # НОВОЕ: Финализация лога валидации
+    print(f"\nФинализация валидации...")
+    finalize_validation_log()
 
     # Вывод результатов
     print_comparative_results(all_results)
@@ -158,18 +182,28 @@ def main():
         print("✓ Результаты успешно сохранены!")
         print(f"✓ Путь к папке: {results_dir}")
         
-        # Проверяем, создался ли файл аномалий
+        # ОБНОВЛЕНО: Проверка лога валидации (теперь создается всегда)
         if os.path.exists(anomaly_log_filepath):
             file_size = os.path.getsize(anomaly_log_filepath)
             if file_size > 0:
-                print(f"⚠️  Обнаружены финансовые аномалии! Смотрите {anomaly_log_filename}")
+                # Импортируем статистику валидации
+                from config import VALIDATION_STATS
+                if VALIDATION_STATS['total_anomalies'] > 0:
+                    print(f"⚠️  Обнаружено {VALIDATION_STATS['total_anomalies']:,} финансовых аномалий из {VALIDATION_STATS['total_checks']:,} проверок!")
+                    print(f"📋 Детали в файле: {anomaly_log_filename}")
+                else:
+                    print(f"✅ Валидация пройдена: {VALIDATION_STATS['total_checks']:,} проверок, аномалий не найдено")
+                    print(f"📋 Отчет валидации: {anomaly_log_filename}")
             else:
-                print(f"✓ Финансовых аномалий не обнаружено")
+                print(f"⚠️  Лог валидации пуст: {anomaly_log_filename}")
         else:
-            print(f"✓ Финансовых аномалий не обнаружено")
+            print(f"✗ Лог валидации не создан: {anomaly_log_filename}")
+            print(f"    Проверьте права доступа к директории: {results_dir}")
             
     except Exception as e:
         print(f"✗ Ошибка при сохранении: {e}")
+        import traceback
+        traceback.print_exc()
 
     print(f"\nОбщее время расчета: {total_time/60:.1f} минут")
     print(f"Скорость: {N_SCENARIOS/total_time:.0f} сценариев/сек")
